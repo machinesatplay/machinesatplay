@@ -1,0 +1,42 @@
+[package]
+name = "render-fn"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/machinesatplay/machinesatplay"
+publish = false
+
+[features]
+default = []
+browser-webgl2 = ["bevy/webgl2"]
+browser-webgpu = ["bevy/webgpu"]
+
+[dependencies]
+render-api = { path = "../render-api" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+gltf = { version = "1.4", default-features = false, features = ["utils"] }
+bevy = { version = "0.19", default-features = false, features = [
+  "std",
+  "reflect_auto_register",
+  "async_executor",
+  "multi_threaded",
+  "bevy_asset",
+  "bevy_log",
+  "bevy_state",
+  "bevy_window",
+  "bevy_color",
+  "bevy_image",
+  "bevy_mesh",
+  "bevy_shader",
+  "bevy_material",
+  "bevy_camera",
+  "bevy_light",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_gltf",
+  "bevy_pbr",
+  "bevy_scene",
+  "bevy_mikktspace",
+  "png",
+] }

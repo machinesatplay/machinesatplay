@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>game</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #111; }
+    canvas { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
+    #loading { color: #eee; font-family: monospace; padding: 2rem; }
+  </style>
+</head>
+<body>
+  <div id="loading">loading game...</div>
+  <script>
+    // Bevy's web audio backend creates its AudioContext during startup. Browsers
+    // suspend that context until playback is explicitly unlocked by a user gesture.
+    (() => {
+      const contexts = new Set();
+      const inputEvents = ["pointerdown", "touchstart", "keydown"];
+      let listening = false;
+
+      const stopListening = () => {
+        if (!listening) return;
+        for (const eventName of inputEvents) {
+          window.removeEventListener(eventName, unlockAudio, true);
+        }
+        listening = false;
+      };
+
+      const startListening = () => {
+        if (listening) return;
+        for (const eventName of inputEvents) {
+          window.addEventListener(eventName, unlockAudio, true);
+        }
+        listening = true;
+      };
+
+      function unlockAudio() {
+        const resumes = [];
+        for (const context of contexts) {
+          if (context.state === "suspended") {
+            resumes.push(context.resume().catch(() => {}));
+          }
+        }
+
+        void Promise.allSettled(resumes).then(() => {
+          if (contexts.size > 0 &&
+              ![...contexts].some((context) => context.state === "suspended")) {
+            stopListening();
+          }
+        });
+      }
+
+      const trackAudioContexts = (constructorName) => {
+        const AudioContextConstructor = window[constructorName];
+        if (typeof AudioContextConstructor !== "function") return;
+
+        window[constructorName] = new Proxy(AudioContextConstructor, {
+          construct(target, args) {
+            const context = new target(...args);
+            contexts.add(context);
+            if (context.state === "suspended") startListening();
+            return context;
+          },
+        });
+      };
+
+      trackAudioContexts("AudioContext");
+      trackAudioContexts("webkitAudioContext");
+      startListening();
+    })();
+  </script>
+  <script type="module">
+    document.documentElement.dataset.gameConnection = "starting";
+    const gameBase = location.pathname.match(/^(\/g\/[^/]+)/)?.[1] || "";
+
+    const setLoading = (message) => {
+      const loading = document.getElementById("loading");
+      if (loading) loading.textContent = message;
+    };
+
+    const fetchRuntime = () => fetch(`${gameBase}/__game/runtime`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await response.text() || "failed to load runtime configuration");
+        }
+        return response.json();
+      });
+
+    const artifactUrl = (path, version) => {
+      const url = new URL(path, location.href);
+      if (version) url.searchParams.set("v", version);
+      return url;
+    };
+
+    let devRevision;
+    async function watchForChanges() {
+      try {
+        const response = await fetch(`${gameBase}/__game/version`, { cache: "no-store" });
+        if (response.ok) {
+          const revision = await response.text();
+          if (devRevision !== undefined && revision !== devRevision) location.reload();
+          devRevision = revision;
+        }
+      } catch (_) {
+        // The development server may be restarting. Keep polling.
+      }
+    }
+    function startDevelopmentWatcher() {
+      void watchForChanges().then(() => {
+        if (devRevision !== undefined) setInterval(watchForChanges, 500);
+      });
+    }
+
+    async function chooseRenderer() {
+      const forced = new URLSearchParams(location.search).get("renderer");
+      if (forced === "webgpu" || forced === "webgl2") {
+        return { name: forced, forced: true };
+      }
+
+      if (navigator.gpu) {
+        try {
+          if (await navigator.gpu.requestAdapter()) {
+            return { name: "webgpu", forced: false };
+          }
+        } catch (_) {
+          // Fall through to the compatibility renderer.
+        }
+      }
+      return { name: "webgl2", forced: false };
+    }
+
+    async function loadGame() {
+      setLoading("checking graphics...");
+      let runtime = await fetchRuntime();
+      const renderer = await chooseRenderer();
+      if (runtime.development) startDevelopmentWatcher();
+      if (runtime.development && renderer.name !== "webgpu") {
+        throw new Error("mach dev requires WebGPU in this browser");
+      }
+
+      let attempt = 0;
+      let engine;
+      while (!engine) {
+        const versions = runtime.engineVersions?.[renderer.name];
+        const moduleUrl = artifactUrl(`./mach_${renderer.name}.js`, versions?.module);
+        const wasmUrl = artifactUrl(`./mach_${renderer.name}_bg.wasm`, versions?.wasm);
+
+        setLoading(attempt ? "building game..." : `loading engine (${renderer.name})...`);
+        try {
+          if (attempt) {
+            moduleUrl.searchParams.set("mach_build_attempt", attempt);
+            wasmUrl.searchParams.set("mach_build_attempt", attempt);
+          }
+          const wasmResponse = fetch(wasmUrl).then((response) => {
+            if (!response.ok) throw new Error(`failed to load engine: HTTP ${response.status}`);
+            return response;
+          });
+          engine = await import(moduleUrl.href);
+          await engine.default({ module_or_path: wasmResponse });
+        } catch (error) {
+          if (!runtime.development) {
+            if (renderer.name === "webgpu" && !renderer.forced) {
+              const fallbackUrl = new URL(location.href);
+              fallbackUrl.searchParams.set("renderer", "webgl2");
+              location.replace(fallbackUrl);
+              return;
+            }
+            throw error;
+          }
+          engine = undefined;
+          attempt += 1;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          runtime = await fetchRuntime();
+        }
+      }
+
+      console.info(`renderer: ${renderer.name}`);
+      setLoading("starting game...");
+      engine.start_game(runtime.certificateDigest, runtime.serverHost, runtime.serverPort);
+      document.getElementById("loading")?.remove();
+    }
+
+    loadGame().catch((e) => {
+      // bevy's winit "exit" control flow throws; only real errors matter
+      if (!e?.message?.includes("Using exceptions for control flow")) {
+        document.getElementById("loading").textContent = "failed to load: " + e;
+        throw e;
+      }
+      document.getElementById("loading")?.remove();
+    });
+  </script>
+</body>
+</html>

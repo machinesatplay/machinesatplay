@@ -1,0 +1,193 @@
+[workspace]
+members = [
+  "cli",
+  "crates/game-client",
+  "crates/game-core",
+  "crates/game-format",
+  "crates/game-server",
+  "crates/render-api",
+  "crates/render-fn",
+]
+exclude = ["vendor/walrus", "vendor/wasm-bindgen-cli-support"]
+resolver = "2"
+
+# Pinned browser build transforms with large-module fast paths.
+[patch.crates-io]
+walrus = { path = "vendor/walrus" }
+wasm-bindgen-cli-support = { path = "vendor/wasm-bindgen-cli-support" }
+
+[package]
+name = "mach"
+version = "0.1.24"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/machinesatplay/machinesatplay"
+default-run = "mach"
+
+[[bin]]
+name = "mach"
+path = "src/main.rs"
+required-features = ["engine-core"]
+
+[features]
+default = []
+engine-core = [
+  "dep:avian3d",
+  "dep:bevy",
+  "dep:clap",
+  "dep:game-core",
+  "dep:lightyear",
+]
+client = [
+  "engine-core",
+  "bevy/bevy_audio",
+  "bevy/bevy_gizmos",
+  "bevy/bevy_gizmos_render",
+  "bevy/bevy_winit",
+  "bevy/default_font",
+  "bevy/ui_bevy_render",
+  "bevy/custom_cursor",
+  "bevy/mp3",
+  "dep:console_error_panic_hook",
+  "dep:game-client",
+  "dep:getrandom",
+  "dep:getrandom_02",
+  "dep:getrandom_03",
+  "dep:rand",
+  "dep:render-fn",
+  "dep:wasm-bindgen",
+  "game-core/client",
+  "lightyear/client",
+  "lightyear/frame_interpolation",
+  "lightyear/interpolation",
+  "lightyear/prediction",
+  "lightyear/replication",
+]
+# Browser builds select exactly one renderer backend.
+browser-webgl2 = [
+  "client",
+  "bevy/webgl2",
+  "render-fn/browser-webgl2",
+]
+browser-webgpu = [
+  "client",
+  "bevy/webgpu",
+  "game-client/browser-webgpu",
+  "render-fn/browser-webgpu",
+]
+[dependencies]
+bevy = { version = "0.19", optional = true, default-features = false, features = [
+  "async_executor",
+  "bevy_color",
+  "bevy_log",
+  "bevy_state",
+  "multi_threaded",
+  "std",
+] }
+rand = { version = "0.10", optional = true }
+game-client = { path = "crates/game-client", optional = true }
+game-core = { path = "crates/game-core", optional = true, default-features = false }
+render-fn = { path = "crates/render-fn", optional = true }
+avian3d = { version = "0.7", optional = true, default-features = false, features = [
+  "3d",
+  "f32",
+  "parry-f32",
+  "enhanced-determinism",
+] }
+
+# Native: client + server + WebTransport listener
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+lightyear = { version = "0.28.0", optional = true, default-features = false, features = [
+  "avian3d",
+  "std",
+  "input_native",
+  "netcode",
+  "webtransport",
+] }
+clap = { version = "4.5", optional = true, features = ["derive"] }
+
+# Browser: client only (no server feature; wtransport server doesn't build on wasm)
+[target.'cfg(target_family = "wasm")'.dependencies]
+lightyear = { version = "0.28.0", optional = true, default-features = false, features = [
+  "avian3d",
+  "std",
+  "input_native",
+  "netcode",
+  "webtransport",
+] }
+# two getrandom major versions exist in the dep tree (lightyear -> 0.3, bevy's rand -> 0.4);
+# both need their wasm backend enabled explicitly
+getrandom_02 = { package = "getrandom", version = "0.2", optional = true, features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", optional = true, features = ["wasm_js"] }
+getrandom = { version = "0.4", optional = true, features = ["wasm_js"] }
+console_error_panic_hook = { version = "0.1", optional = true }
+wasm-bindgen = { version = "0.2.126", optional = true }
+
+# Faster iterative builds: optimize deps (bevy) but not our own code
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.mach-dev]
+inherits = "dev"
+debug = 0
+strip = "debuginfo"
+incremental = true
+
+[profile.mach-dev.package."*"]
+debug-assertions = false
+opt-level = 3
+overflow-checks = false
+
+# Keep workspace code cheap to rebuild during local development.
+[profile.mach-dev.package.mach]
+codegen-units = 1
+debug-assertions = true
+opt-level = 0
+overflow-checks = true
+
+[profile.mach-dev.package.game-client]
+codegen-units = 32
+debug-assertions = true
+opt-level = 0
+overflow-checks = true
+
+[profile.mach-dev.package.game-core]
+codegen-units = 64
+debug-assertions = true
+opt-level = 0
+overflow-checks = true
+
+[profile.mach-dev.package.game-server]
+codegen-units = 32
+debug-assertions = true
+opt-level = 0
+overflow-checks = true
+
+[profile.mach-dev.package.render-api]
+codegen-units = 32
+debug-assertions = true
+opt-level = 1
+overflow-checks = true
+
+[profile.mach-dev.package.render-fn]
+codegen-units = 32
+debug-assertions = true
+opt-level = 1
+overflow-checks = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Browser deploys favor quick iteration while keeping optimized game code.
+[profile.mach-deploy]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

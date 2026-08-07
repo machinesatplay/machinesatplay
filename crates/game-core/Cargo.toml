@@ -1,0 +1,47 @@
+[package]
+name = "game-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/machinesatplay/machinesatplay"
+publish = false
+
+[features]
+default = []
+client = [
+  "lightyear/client",
+  "lightyear/frame_interpolation",
+  "lightyear/interpolation",
+  "lightyear/prediction",
+  "lightyear/replication",
+]
+server = [
+  "lightyear/interpolation",
+  "lightyear/prediction",
+  "lightyear/replication",
+  "lightyear/server",
+]
+
+[dependencies]
+avian3d = { version = "0.7", default-features = false, features = [
+  "3d",
+  "f32",
+  "parry-f32",
+  "enhanced-determinism",
+  "serialize",
+] }
+bevy = { version = "0.19", default-features = false, features = [
+  "async_executor",
+  "bevy_color",
+  "bevy_log",
+  "bevy_state",
+  "multi_threaded",
+  "std",
+] }
+lightyear = { version = "0.28.0", default-features = false, features = [
+  "avian3d",
+  "std",
+  "input_native",
+  "netcode",
+] }
+serde = { version = "1", features = ["derive"] }

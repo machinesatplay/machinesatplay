@@ -1,0 +1,59 @@
+[package]
+name = "game-client"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/machinesatplay/machinesatplay"
+publish = false
+
+[features]
+default = []
+browser-webgpu = [
+  "bevy/webgpu",
+  "render-fn/browser-webgpu",
+]
+
+[dependencies]
+avian3d = { version = "0.7", default-features = false, features = [
+  "3d",
+  "f32",
+  "parry-f32",
+  "enhanced-determinism",
+] }
+bevy = { version = "0.19", default-features = false, features = [
+  "async_executor",
+  "bevy_audio",
+  "bevy_color",
+  "bevy_gizmos",
+  "bevy_gizmos_render",
+  "bevy_log",
+  "bevy_state",
+  "bevy_winit",
+  "custom_cursor",
+  "default_font",
+  "mp3",
+  "multi_threaded",
+  "std",
+  "ui_bevy_render",
+] }
+game-core = { path = "../game-core", default-features = false, features = ["client"] }
+game-format = { path = "../game-format" }
+lightyear = { version = "0.28.0", default-features = false, features = [
+  "avian3d",
+  "std",
+  "input_native",
+  "netcode",
+  "client",
+  "frame_interpolation",
+  "interpolation",
+  "prediction",
+  "replication",
+  "webtransport",
+] }
+render-fn = { path = "../render-fn" }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+# Keep the browser client independently buildable for the incremental relinker.
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }

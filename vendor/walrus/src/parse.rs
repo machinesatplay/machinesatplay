@@ -1,0 +1,176 @@
+use crate::map::IdHashMap;
+use crate::{DataId, ElementId, Function, FunctionId, GlobalId, Result};
+use crate::{LocalId, MemoryId, TableId, TagId, TypeId};
+use anyhow::bail;
+
+/// Maps from old indices in the original Wasm binary to `walrus` IDs.
+///
+/// This is intended to be used with `walrus::Module`s that were parsed from
+/// some existing Wasm binary. `walrus::Module`s that are built up from scratch,
+/// and not originally parsed from an existing Wasm binary, will have an empty
+/// `IndicesToIds`.
+///
+/// For example, this allows you to get the `walrus::FunctionId` of some Wasm
+/// function when you have its old index in the original Wasm module.
+///
+/// Any newly built or added things (functions, tables, types, etc) are not
+/// associated with an old index (since they were not present in the original
+/// Wasm binary).
+#[derive(Clone, Debug, Default)]
+pub struct IndicesToIds {
+    tables: Vec<TableId>,
+    types: Vec<TypeId>,
+    funcs: Vec<FunctionId>,
+    globals: Vec<GlobalId>,
+    memories: Vec<MemoryId>,
+    elements: Vec<ElementId>,
+    data: Vec<DataId>,
+    tags: Vec<TagId>,
+    locals: IdHashMap<Function, Vec<LocalId>>,
+}
+
+/// Maps each index from a parsed module to the index used by its latest
+/// emitted module. Removed items have no emitted index.
+#[derive(Clone, Debug, Default)]
+pub struct OriginalToEmittedIndices {
+    /// Function indices, including imported functions.
+    pub functions: Vec<Option<u32>>,
+    /// Type indices.
+    pub types: Vec<Option<u32>>,
+    /// Global indices.
+    pub globals: Vec<Option<u32>>,
+    /// Memory indices.
+    pub memories: Vec<Option<u32>>,
+    /// Table indices.
+    pub tables: Vec<Option<u32>>,
+    /// Element indices.
+    pub elements: Vec<Option<u32>>,
+    /// Data indices.
+    pub data: Vec<Option<u32>>,
+    /// Tag indices.
+    pub tags: Vec<Option<u32>>,
+    /// Number of imported functions in the emitted module.
+    pub emitted_function_imports: u32,
+}
+
+macro_rules! define_push_get {
+    ( $push:ident, $get:ident, $id_ty:ty, $member:ident ) => {
+        impl IndicesToIds {
+            /// Pushes a new local ID to map it to the next index internally
+            pub(crate) fn $push(&mut self, id: $id_ty) -> u32 {
+                self.$member.push(id);
+                (self.$member.len() - 1) as u32
+            }
+
+            /// Gets the ID for a particular index.
+            ///
+            /// If the index did not exist in the original Wasm binary, an `Err`
+            /// is returned.
+            pub fn $get(&self, index: u32) -> Result<$id_ty> {
+                match self.$member.get(index as usize) {
+                    Some(x) => Ok(*x),
+                    None => bail!(
+                        "index `{}` is out of bounds for {}",
+                        index,
+                        stringify!($member)
+                    ),
+                }
+            }
+        }
+    };
+}
+
+define_push_get!(push_table, get_table, TableId, tables);
+define_push_get!(push_type, get_type, TypeId, types);
+define_push_get!(push_func, get_func, FunctionId, funcs);
+define_push_get!(push_global, get_global, GlobalId, globals);
+define_push_get!(push_memory, get_memory, MemoryId, memories);
+define_push_get!(push_element, get_element, ElementId, elements);
+define_push_get!(push_data, get_data, DataId, data);
+define_push_get!(push_tag, get_tag, TagId, tags);
+
+impl IndicesToIds {
+    pub(crate) fn to_emitted(
+        &self,
+        emitted: &crate::IdsToIndices,
+        emitted_function_imports: u32,
+    ) -> OriginalToEmittedIndices {
+        OriginalToEmittedIndices {
+            functions: self
+                .funcs
+                .iter()
+                .map(|id| emitted.function_index(*id))
+                .collect(),
+            types: self
+                .types
+                .iter()
+                .map(|id| emitted.type_index(*id))
+                .collect(),
+            globals: self
+                .globals
+                .iter()
+                .map(|id| emitted.global_index(*id))
+                .collect(),
+            memories: self
+                .memories
+                .iter()
+                .map(|id| emitted.memory_index(*id))
+                .collect(),
+            tables: self
+                .tables
+                .iter()
+                .map(|id| emitted.table_index(*id))
+                .collect(),
+            elements: self
+                .elements
+                .iter()
+                .map(|id| emitted.element_index(*id))
+                .collect(),
+            data: self
+                .data
+                .iter()
+                .map(|id| emitted.data_index(*id))
+                .collect(),
+            tags: self
+                .tags
+                .iter()
+                .map(|id| emitted.tag_index(*id))
+                .collect(),
+            emitted_function_imports,
+        }
+    }
+
+    /// Update the TypeId at a given wasm type index.
+    ///
+    /// Used when singleton type deduplication remaps a pre-allocated
+    /// placeholder to an existing canonical type.
+    pub(crate) fn remap_type(&mut self, index: u32, id: TypeId) {
+        self.types[index as usize] = id;
+    }
+
+    /// Pushes a new local ID to map it to the next index internally
+    pub(crate) fn push_local(&mut self, function: FunctionId, id: LocalId) -> u32 {
+        let list = self.locals.entry(function).or_default();
+        list.push(id);
+        (list.len() as u32) - 1
+    }
+
+    /// Gets the ID for a particular index
+    pub fn get_local(&self, function: FunctionId, index: u32) -> Result<LocalId> {
+        let locals = match self.locals.get(&function) {
+            Some(x) => x,
+            None => bail!(
+                "function index `{}` is out of bounds for local",
+                function.index()
+            ),
+        };
+        match locals.get(index as usize) {
+            Some(x) => Ok(*x),
+            None => bail!(
+                "index `{}` in function `{}` is out of bounds for local",
+                index,
+                function.index(),
+            ),
+        }
+    }
+}

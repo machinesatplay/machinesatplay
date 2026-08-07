@@ -1,0 +1,6 @@
+{
+  "$schema": "./game.schema.json",
+  "schemaVersion": 1,
+  "name": "movement-playground",
+  "engineVersion": "0.1.0"
+}
